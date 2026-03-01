@@ -1,38 +1,15 @@
+import requests
 from bs4 import BeautifulSoup as bs
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
-
-import os
-import streamlit as st
 import pandas as pd
-import plotly.express as px
-
 from datetime import datetime
+import streamlit as st
 import time
+import os
+import plotly.express as px
 import sqlite3
 
 
 CLEANED_DATA_FOLDER = "data/data_clean"
-
-@st.cache_data(ttl=300)
-def load_cleaned_data(filename):
-    """Charge un fichier CSV nettoyé depuis data/data_clean/"""
-    filepath = f"data/data_clean/{filename}"
-    if os.path.exists(filepath):
-        return pd.read_csv(filepath)
-    return None
-
-def get_cleaned_files():
-    """Récupère la liste des fichiers CSV nettoyés"""
-    if os.path.exists(CLEANED_DATA_FOLDER):
-        files = [f for f in os.listdir(CLEANED_DATA_FOLDER) if f.endswith('_cleaned.csv')]
-        return files
-    return []
-
-
 
 def init_db():
     """Initialise la structure de la BDD"""
@@ -97,6 +74,9 @@ def load_scraped_data():
 
 
 # -------- Chargement des fichier csv
+
+# donnée bruite pour téléchargement
+
 @st.cache_data(ttl=300)
 def load_existing_data(filename):
     filepath = f"data/{filename}"
@@ -112,56 +92,67 @@ def get_available_files():
         return files
     return []
 
+# donnée nétoyée pour le dashboard
+
+@st.cache_data(ttl=300)
+def load_cleaned_data(filename):
+    """Charge un fichier CSV nettoyé depuis data/data_clean/"""
+    filepath = f"data/data_clean/{filename}"
+    if os.path.exists(filepath):
+        return pd.read_csv(filepath)
+    return None
+
+def get_cleaned_files():
+    """Récupère la liste des fichiers CSV nettoyés"""
+    if os.path.exists(CLEANED_DATA_FOLDER):
+        files = [f for f in os.listdir(CLEANED_DATA_FOLDER) if f.endswith('_cleaned.csv')]
+        return files
+    return []
+
+
 # -------- Scraping des données 
 def scrape_category(base_url, category_name, num_pages, progress_bar, status_text):
-    """Fonction de scraping avec Selenium"""
-    options = webdriver.ChromeOptions()
-    options.add_argument('--headless=new')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    
+    """Scraping sans Selenium, uniquement BeautifulSoup"""
     all_data = []
-    
-    try:
-        driver = webdriver.Chrome(options=options)
-        wait = WebDriverWait(driver, 10)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+
+    for page in range(1, num_pages + 1):
+        url = f"{base_url}?page={page}"
+        status_text.text(f"{category_name} | Page {page}/{num_pages}")
         
-        for page in range(1, num_pages + 1):
-            url = f"{base_url}?page={page}"
-            status_text.text(f"{category_name} | Page {page}/{num_pages}")
-            
-            try:
-                driver.get(url)
-                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.ad__card')))
-                containers = driver.find_elements(By.CSS_SELECTOR, '.ad__card')
-                
-                for container in containers:
-                    def safe_find(selector, attr='text'):
-                        try:
-                            elem = container.find_element(By.CSS_SELECTOR, selector)
-                            return elem.get_attribute('src') if attr == 'src' else elem.text
-                        except:
-                            return "N/A"
-                    
-                    all_data.append({
-                        "nom": safe_find('.ad__card-description'),
-                        "prix": safe_find('.ad__card-price'),
-                        "adresse": safe_find('.ad__card-location span'),
-                        "url_image": safe_find('img.ad__card-img', attr='src')
-                    })
-                
-                progress_bar.progress(page / num_pages)
-                time.sleep(2)
-                
-            except TimeoutException:
-                status_text.text(f"Timeout page {page}")
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code != 200:
+                status_text.text(f"Erreur HTTP {resp.status_code} page {page}")
                 continue
-            except Exception as e:
-                status_text.text(f"Erreur page {page}")
-                continue
-        
-        return pd.DataFrame(all_data)
-        
-    finally:
-        driver.quit()
+
+            soup = bs(resp.content, "html.parser")
+            containers = soup.select(".ad__card")  # même selecteur que Selenium
+
+            for container in containers:
+                def safe_find(selector, attr='text'):
+                    elem = container.select_one(selector)
+                    if elem:
+                        return elem['src'] if attr=='src' else elem.get_text(strip=True)
+                    return "N/A"
+                
+                all_data.append({
+                    "nom": safe_find(".ad__card-description"),
+                    "prix": safe_find(".ad__card-price"),
+                    "adresse": safe_find(".ad__card-location span"),
+                    "url_image": safe_find("img.ad__card-img", attr='src')
+                })
+
+            progress_bar.progress(page / num_pages)
+            time.sleep(1)  # pause légère pour ne pas spammer le serveur
+        except Exception as e:
+            status_text.text(f"Erreur page {page}: {e}")
+            continue
+
+    df = pd.DataFrame(all_data)
+    return df
+
+

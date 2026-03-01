@@ -304,7 +304,7 @@ if menu == "Dashboard":
 
 # ----------- Automatisation du scrapping 
 elif menu == "Scraper les données":
-    st.markdown('<div class="header-container"><h1>Scraper avec Selenium</h1><p class="subtitle">Collecte automatique de données web</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-container"><h1>Scraper avec Beautiful Soup</h1><p class="subtitle">Collecte automatique de données web</p></div>', unsafe_allow_html=True)
     
     st.info(f"""
     **Configuration active**  
@@ -322,7 +322,7 @@ elif menu == "Scraper les données":
         status_text = st.empty()
         result_box = st.empty()
         
-        with st.spinner("Démarrage du navigateur..."):
+        with st.spinner("Scrapping en cours..."):
             df_scraped = scrape_category(
                 categories[selected_category], 
                 selected_category, 
